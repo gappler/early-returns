@@ -50,7 +50,7 @@ def test_get_itemized_contributions(mock_get):
     mock_response.json.return_value = MOCK_SCHEDULE_A_PAGE1
     mock_get.return_value = mock_response
 
-    results = get_itemized_contributions("H8NC01087", "DEMO_KEY", max_pages=1)
+    results = get_itemized_contributions("C00795211", "DEMO_KEY", max_pages=1)
     assert len(results) == 4
 
 
@@ -114,8 +114,10 @@ def test_generate_report():
     totals = {
         "receipts": 1500000.00,
         "disbursements": 800000.00,
-        "cash_on_hand_end_period": 700000.00,
+        "last_cash_on_hand_end_period": 700000.00,
         "individual_contributions": 1200000.00,
+        "individual_itemized_contributions": 900000.00,
+        "individual_unitemized_contributions": 300000.00,
         "coverage_end_date": "2026-06-30",
     }
     top_donors = [
@@ -159,4 +161,4 @@ def test_generate_report():
     assert "HOUSE MAJORITY PAC" in report
     assert "Support" in report
     assert "Oppose" in report
-    assert "$2,500" in report  # average donor size: 1500000 / 600
+    assert "$2,000" in report  # avg individual donation: 1200000 / 600

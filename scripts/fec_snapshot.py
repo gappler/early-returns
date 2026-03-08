@@ -2,6 +2,7 @@
 
 import os
 import sys
+import time
 from datetime import datetime
 import requests
 from dotenv import load_dotenv
@@ -26,12 +27,23 @@ def get_candidate_totals(candidate_id, api_key):
     return results[0]
 
 
-def get_itemized_contributions(candidate_id, api_key, max_pages=5):
+def get_committee_id(candidate_id, api_key):
+    url = f"{FEC_BASE_URL}/candidate/{candidate_id}/committees/"
+    params = {"api_key": api_key, "designation": "P"}
+    response = requests.get(url, params=params)
+    response.raise_for_status()
+    results = response.json()["results"]
+    if not results:
+        raise ValueError(f"No principal campaign committee found for {candidate_id}")
+    return results[0]["committee_id"]
+
+
+def get_itemized_contributions(committee_id, api_key, max_pages=5):
     url = f"{FEC_BASE_URL}/schedules/schedule_a/"
     all_results = []
     params = {
         "api_key": api_key,
-        "candidate_id": candidate_id,
+        "committee_id": committee_id,
         "two_year_transaction_period": 2026,
         "is_individual": True,
         "per_page": 100,
@@ -51,6 +63,7 @@ def get_itemized_contributions(candidate_id, api_key, max_pages=5):
         params["last_contribution_receipt_amount"] = last_indexes.get(
             "last_contribution_receipt_amount"
         )
+        time.sleep(0.5)
 
     return all_results
 
@@ -93,7 +106,6 @@ def get_independent_expenditures(candidate_id, api_key, max_pages=5):
     params = {
         "api_key": api_key,
         "candidate_id": candidate_id,
-        "cycle": 2026,
         "per_page": 100,
         "sort": "-expenditure_amount",
     }
@@ -109,6 +121,7 @@ def get_independent_expenditures(candidate_id, api_key, max_pages=5):
             break
         params["last_index"] = last_indexes.get("last_index")
         params["last_expenditure_amount"] = last_indexes.get("last_expenditure_amount")
+        time.sleep(0.5)
 
     return all_results
 
@@ -122,7 +135,10 @@ def generate_report(
     independent_expenditures, num_contributions,
 ):
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    avg_donation = totals["receipts"] / num_contributions if num_contributions > 0 else 0
+    itemized_total = totals.get("individual_itemized_contributions", 0)
+    unitemized_total = totals.get("individual_unitemized_contributions", 0)
+    individual_total = totals.get("individual_contributions", 0)
+    avg_donation = individual_total / num_contributions if num_contributions > 0 else 0
 
     lines = []
     lines.append(f"# {candidate_name} ({race})")
@@ -136,10 +152,14 @@ def generate_report(
     lines.append("")
     lines.append("| Metric | Amount |")
     lines.append("|--------|--------|")
+    cash_on_hand = totals.get("last_cash_on_hand_end_period", totals.get("cash_on_hand_end_period", 0))
     lines.append(f"| Total Raised | {format_currency(totals['receipts'])} |")
     lines.append(f"| Total Spent | {format_currency(totals['disbursements'])} |")
-    lines.append(f"| Cash on Hand | {format_currency(totals['cash_on_hand_end_period'])} |")
-    lines.append(f"| Avg Donation Size | {format_currency(avg_donation)} |")
+    lines.append(f"| Cash on Hand | {format_currency(cash_on_hand)} |")
+    lines.append(f"| Individual Contributions | {format_currency(individual_total)} |")
+    lines.append(f"| — Itemized (>$200) | {format_currency(itemized_total)} |")
+    lines.append(f"| — Unitemized (<=$200) | {format_currency(unitemized_total)} |")
+    lines.append(f"| Avg Individual Donation | {format_currency(avg_donation)} |")
     lines.append("")
 
     # Section 2: Top Donors
@@ -162,17 +182,22 @@ def generate_report(
         lines.append(f"| {emp['employer']} | {format_currency(emp['total'])} |")
     lines.append("")
 
-    # Section 4: Outside Money
+    # Section 4: Outside Money (aggregated by committee + support/oppose)
     lines.append("## Independent Expenditures (Outside Money)")
     lines.append("")
     if independent_expenditures:
-        lines.append("| Committee | Amount | Support/Oppose |")
-        lines.append("|-----------|--------|----------------|")
+        ie_agg = {}
         for ie in independent_expenditures:
             committee_name = ie.get("committee", {}).get("name", "UNKNOWN")
             amount = ie.get("expenditure_amount", 0)
             so = "Support" if ie.get("support_oppose_indicator") == "S" else "Oppose"
-            lines.append(f"| {committee_name} | {format_currency(amount)} | {so} |")
+            key = (committee_name, so)
+            ie_agg[key] = ie_agg.get(key, 0) + amount
+        sorted_ie = sorted(ie_agg.items(), key=lambda x: x[1], reverse=True)
+        lines.append("| Committee | Total | Support/Oppose |")
+        lines.append("|-----------|-------|----------------|")
+        for (committee_name, so), total in sorted_ie:
+            lines.append(f"| {committee_name} | {format_currency(total)} | {so} |")
     else:
         lines.append("No independent expenditures reported for this cycle.")
     lines.append("")
@@ -190,8 +215,11 @@ def run_snapshot(candidate_id, candidate_name, race):
     print("  -> Candidate totals...")
     totals = get_candidate_totals(candidate_id, api_key)
 
-    print("  -> Itemized contributions...")
-    contributions = get_itemized_contributions(candidate_id, api_key)
+    print("  -> Looking up campaign committee...")
+    committee_id = get_committee_id(candidate_id, api_key)
+
+    print(f"  -> Itemized contributions ({committee_id})...")
+    contributions = get_itemized_contributions(committee_id, api_key)
 
     print("  -> Independent expenditures...")
     indie = get_independent_expenditures(candidate_id, api_key)
@@ -222,7 +250,7 @@ def run_snapshot(candidate_id, candidate_name, race):
 
 if __name__ == "__main__":
     # Default test candidate: Don Davis, NC-01
-    cid = sys.argv[1] if len(sys.argv) > 1 else "H8NC01087"
+    cid = sys.argv[1] if len(sys.argv) > 1 else "H2NC02287"
     name = sys.argv[2] if len(sys.argv) > 2 else "Don Davis"
     race = sys.argv[3] if len(sys.argv) > 3 else "NC-01"
     run_snapshot(cid, name, race)
