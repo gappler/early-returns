@@ -1,6 +1,6 @@
 import json
 from unittest.mock import patch, MagicMock
-from scripts.fec_snapshot import get_candidate_totals, get_itemized_contributions, aggregate_top_donors, aggregate_by_employer
+from scripts.fec_snapshot import get_candidate_totals, get_itemized_contributions, aggregate_top_donors, aggregate_by_employer, get_independent_expenditures
 
 MOCK_TOTALS_RESPONSE = {
     "results": [
@@ -77,3 +77,34 @@ def test_aggregate_by_employer():
     assert result[0]["employer"] == "ACME CORP"
     assert result[0]["total"] == 4400.00
     assert result[1]["employer"] == "STATE UNIVERSITY"
+
+
+MOCK_SCHEDULE_E_RESPONSE = {
+    "results": [
+        {
+            "committee": {"name": "AMERICANS FOR PROSPERITY"},
+            "expenditure_amount": 250000.00,
+            "support_oppose_indicator": "O",
+            "expenditure_description": "TV ADS",
+        },
+        {
+            "committee": {"name": "HOUSE MAJORITY PAC"},
+            "expenditure_amount": 500000.00,
+            "support_oppose_indicator": "S",
+            "expenditure_description": "DIGITAL ADS",
+        },
+    ],
+    "pagination": {"last_indexes": None, "pages": 1},
+}
+
+
+@patch("scripts.fec_snapshot.requests.get")
+def test_get_independent_expenditures(mock_get):
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = MOCK_SCHEDULE_E_RESPONSE
+    mock_get.return_value = mock_response
+
+    result = get_independent_expenditures("H8NC01087", "DEMO_KEY")
+    assert len(result) == 2
+    assert result[0]["committee"]["name"] == "AMERICANS FOR PROSPERITY"

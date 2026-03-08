@@ -83,3 +83,29 @@ def aggregate_by_employer(contributions):
         reverse=True,
     )
     return sorted_employers
+
+
+def get_independent_expenditures(candidate_id, api_key, max_pages=5):
+    url = f"{FEC_BASE_URL}/schedules/schedule_e/"
+    all_results = []
+    params = {
+        "api_key": api_key,
+        "candidate_id": candidate_id,
+        "cycle": 2026,
+        "per_page": 100,
+        "sort": "-expenditure_amount",
+    }
+
+    for page in range(max_pages):
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
+        all_results.extend(data["results"])
+
+        last_indexes = data["pagination"].get("last_indexes")
+        if not last_indexes:
+            break
+        params["last_index"] = last_indexes.get("last_index")
+        params["last_expenditure_amount"] = last_indexes.get("last_expenditure_amount")
+
+    return all_results
