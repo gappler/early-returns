@@ -1,6 +1,6 @@
 import json
 from unittest.mock import patch, MagicMock
-from scripts.fec_snapshot import get_candidate_totals, get_itemized_contributions, aggregate_top_donors, aggregate_by_employer, get_independent_expenditures
+from scripts.fec_snapshot import get_candidate_totals, get_itemized_contributions, aggregate_top_donors, aggregate_by_employer, get_independent_expenditures, generate_report
 
 MOCK_TOTALS_RESPONSE = {
     "results": [
@@ -108,3 +108,55 @@ def test_get_independent_expenditures(mock_get):
     result = get_independent_expenditures("H8NC01087", "DEMO_KEY")
     assert len(result) == 2
     assert result[0]["committee"]["name"] == "AMERICANS FOR PROSPERITY"
+
+
+def test_generate_report():
+    totals = {
+        "receipts": 1500000.00,
+        "disbursements": 800000.00,
+        "cash_on_hand_end_period": 700000.00,
+        "individual_contributions": 1200000.00,
+        "coverage_end_date": "2026-06-30",
+    }
+    top_donors = [
+        {"name": "SMITH, JOHN", "employer": "ACME CORP", "total": 3400.00},
+        {"name": "DOE, JANE", "employer": "ACME CORP", "total": 1500.00},
+    ]
+    employers = [
+        {"employer": "ACME CORP", "total": 4900.00},
+        {"employer": "STATE UNIVERSITY", "total": 1000.00},
+    ]
+    indie_expends = [
+        {
+            "committee": {"name": "HOUSE MAJORITY PAC"},
+            "expenditure_amount": 500000.00,
+            "support_oppose_indicator": "S",
+        },
+        {
+            "committee": {"name": "AMERICANS FOR PROSPERITY"},
+            "expenditure_amount": 250000.00,
+            "support_oppose_indicator": "O",
+        },
+    ]
+    num_contributions = 600
+
+    report = generate_report(
+        candidate_id="H8NC01087",
+        candidate_name="Don Davis",
+        race="NC-01",
+        totals=totals,
+        top_donors=top_donors,
+        employers=employers,
+        independent_expenditures=indie_expends,
+        num_contributions=num_contributions,
+    )
+
+    assert "# Don Davis (NC-01)" in report
+    assert "$1,500,000" in report
+    assert "$700,000" in report
+    assert "SMITH, JOHN" in report
+    assert "ACME CORP" in report
+    assert "HOUSE MAJORITY PAC" in report
+    assert "Support" in report
+    assert "Oppose" in report
+    assert "$2,500" in report  # average donor size: 1500000 / 600
