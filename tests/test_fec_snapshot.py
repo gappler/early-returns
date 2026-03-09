@@ -39,7 +39,7 @@ MOCK_SCHEDULE_A_PAGE1 = {
         {"contributor_name": "SMITH, JOHN", "contributor_employer": "ACME CORP", "contribution_receipt_amount": 500.00},
         {"contributor_name": "WILLIAMS, BOB", "contributor_employer": "STATE UNIVERSITY", "contribution_receipt_amount": 1000.00},
     ],
-    "pagination": {"last_indexes": None, "pages": 1},
+    "pagination": {"last_indexes": None, "pages": 1, "count": 4},
 }
 
 
@@ -50,8 +50,9 @@ def test_get_itemized_contributions(mock_get):
     mock_response.json.return_value = MOCK_SCHEDULE_A_PAGE1
     mock_get.return_value = mock_response
 
-    results = get_itemized_contributions("C00795211", "DEMO_KEY", max_pages=1)
+    results, total_count = get_itemized_contributions("C00795211", "DEMO_KEY", max_pages=1)
     assert len(results) == 4
+    assert total_count == 4
 
 
 def test_aggregate_top_donors():
@@ -140,7 +141,7 @@ def test_generate_report():
             "support_oppose_indicator": "O",
         },
     ]
-    num_contributions = 600
+    total_itemized_records = 600
 
     report = generate_report(
         candidate_id="H8NC01087",
@@ -150,7 +151,7 @@ def test_generate_report():
         top_donors=top_donors,
         employers=employers,
         independent_expenditures=indie_expends,
-        num_contributions=num_contributions,
+        total_itemized_records=total_itemized_records,
     )
 
     assert "# Don Davis (NC-01)" in report
@@ -161,4 +162,4 @@ def test_generate_report():
     assert "HOUSE MAJORITY PAC" in report
     assert "Support" in report
     assert "Oppose" in report
-    assert "$2,000" in report  # avg individual donation: 1200000 / 600
+    assert "$1,500" in report  # avg itemized donation: 900000 / 600

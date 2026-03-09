@@ -41,6 +41,7 @@ def get_committee_id(candidate_id, api_key):
 def get_itemized_contributions(committee_id, api_key, max_pages=5):
     url = f"{FEC_BASE_URL}/schedules/schedule_a/"
     all_results = []
+    total_count = 0
     params = {
         "api_key": api_key,
         "committee_id": committee_id,
@@ -56,6 +57,9 @@ def get_itemized_contributions(committee_id, api_key, max_pages=5):
         data = response.json()
         all_results.extend(data["results"])
 
+        if page == 0:
+            total_count = data["pagination"].get("count", 0)
+
         last_indexes = data["pagination"].get("last_indexes")
         if not last_indexes:
             break
@@ -65,7 +69,7 @@ def get_itemized_contributions(committee_id, api_key, max_pages=5):
         )
         time.sleep(0.5)
 
-    return all_results
+    return all_results, total_count
 
 
 def aggregate_top_donors(contributions, limit=20):
@@ -132,13 +136,13 @@ def format_currency(amount):
 
 def generate_report(
     candidate_id, candidate_name, race, totals, top_donors, employers,
-    independent_expenditures, num_contributions,
+    independent_expenditures, total_itemized_records,
 ):
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     itemized_total = totals.get("individual_itemized_contributions", 0)
     unitemized_total = totals.get("individual_unitemized_contributions", 0)
     individual_total = totals.get("individual_contributions", 0)
-    avg_donation = individual_total / num_contributions if num_contributions > 0 else 0
+    avg_itemized = itemized_total / total_itemized_records if total_itemized_records > 0 else 0
 
     lines = []
     lines.append(f"# {candidate_name} ({race})")
@@ -157,9 +161,9 @@ def generate_report(
     lines.append(f"| Total Spent | {format_currency(totals['disbursements'])} |")
     lines.append(f"| Cash on Hand | {format_currency(cash_on_hand)} |")
     lines.append(f"| Individual Contributions | {format_currency(individual_total)} |")
-    lines.append(f"| — Itemized (>$200) | {format_currency(itemized_total)} |")
+    lines.append(f"| — Itemized (>$200) | {format_currency(itemized_total)} ({total_itemized_records} records) |")
     lines.append(f"| — Unitemized (<=$200) | {format_currency(unitemized_total)} |")
-    lines.append(f"| Avg Individual Donation | {format_currency(avg_donation)} |")
+    lines.append(f"| Avg Itemized Donation | {format_currency(avg_itemized)} |")
     lines.append("")
 
     # Section 2: Top Donors
@@ -219,7 +223,7 @@ def run_snapshot(candidate_id, candidate_name, race):
     committee_id = get_committee_id(candidate_id, api_key)
 
     print(f"  -> Itemized contributions ({committee_id})...")
-    contributions = get_itemized_contributions(committee_id, api_key)
+    contributions, total_itemized_records = get_itemized_contributions(committee_id, api_key)
 
     print("  -> Independent expenditures...")
     indie = get_independent_expenditures(candidate_id, api_key)
@@ -235,7 +239,7 @@ def run_snapshot(candidate_id, candidate_name, race):
         top_donors=top_donors,
         employers=employers,
         independent_expenditures=indie,
-        num_contributions=len(contributions),
+        total_itemized_records=total_itemized_records,
     )
 
     os.makedirs("reports", exist_ok=True)
